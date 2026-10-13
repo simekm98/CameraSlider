@@ -2,6 +2,8 @@
 #include "config.h"
 #include "settings.h"
 #include "motion.h"
+#include "camera.h"
+#include "capture.h"
 #include <WiFi.h>
 #include <ESPmDNS.h>
 #include <LittleFS.h>
@@ -51,6 +53,7 @@ static void sendSettings() {
   JsonDocument d;
   d["type"] = "settings";
   Settings::toJson(d["s"].to<JsonObject>());
+  Camera::toJson(d["cam"].to<JsonObject>());
   sendDoc(d);
 }
 
@@ -58,6 +61,9 @@ static void sendStatus() {
   JsonDocument d;
   d["type"] = "status";
   Motion::fillStatus(d["m"].to<JsonObject>());
+  JsonObject c = d["c"].to<JsonObject>();
+  Camera::fillStatus(c);
+  Capture::fillStatus(c);
 
   JsonObject w = d["w"].to<JsonObject>();
   bool sta = WiFi.status() == WL_CONNECTED;
@@ -158,6 +164,22 @@ static void handleCommand(const char *txt) {
   else if (!strcmp(cmd, "jogRelease")) Motion::cmdJogRelease();
   else if (!strcmp(cmd, "cycle")) err = Motion::cmdStartProgram(true);
   else if (!strcmp(cmd, "single")) err = Motion::cmdStartProgram(false);
+  else if (!strcmp(cmd, "continue")) Motion::cmdContinue();
+
+  else if (!strcmp(cmd, "camSave")) {
+    Camera::apply(doc["s"].as<JsonObjectConst>());
+    Camera::save();
+    sendSettings();
+  }
+  else if (!strcmp(cmd, "camPair")) {
+    if (Motion::isBusy()) err = "Stop the motion before pairing";
+    else err = Camera::cmdPair();
+  }
+  else if (!strcmp(cmd, "camForget")) Camera::cmdForget();
+  else if (!strcmp(cmd, "camTest")) {
+    err = Camera::cmdTest();
+    if (!err) Net::sendMsg("Test shot", false);
+  }
 
   else if (!strcmp(cmd, "saveMotion")) {
     Settings::applyMotion(doc["s"].as<JsonObjectConst>());
@@ -238,6 +260,7 @@ void Net::begin() {
   WiFi.setAutoReconnect(true);
   Serial.printf("[wifi] AP '%s' IP %s\n", AP_SSID, WiFi.softAPIP().toString().c_str());
   startSta();
+  configTzTime("CET-1CEST,M3.5.0,M10.5.0/3", "pool.ntp.org");   // čas pro záznam (jen při připojení k síti)
 
   if (MDNS.begin(MDNS_NAME)) {
     MDNS.addService("http", "tcp", 80);
@@ -246,6 +269,21 @@ void Net::begin() {
 
   ws.onEvent(onWsEvent);
   server.addHandler(&ws);
+
+  // záznam snímků pro třídění fotek v PC
+  server.on("/api/shots", HTTP_GET, [](AsyncWebServerRequest *r) {
+    AsyncResponseStream *res = r->beginResponseStream("application/json");
+    res->addHeader("Access-Control-Allow-Origin", "*");
+    Capture::writeJson(*res);
+    r->send(res);
+  });
+  server.on("/shots.csv", HTTP_GET, [](AsyncWebServerRequest *r) {
+    AsyncResponseStream *res = r->beginResponseStream("text/csv");
+    res->addHeader("Access-Control-Allow-Origin", "*");
+    res->addHeader("Content-Disposition", "attachment; filename=\"shots.csv\"");
+    Capture::writeCsv(*res);
+    r->send(res);
+  });
 
   server.on("/", HTTP_GET, [](AsyncWebServerRequest *r) {
     if (LittleFS.exists("/index.html")) r->send(LittleFS, "/index.html", "text/html");

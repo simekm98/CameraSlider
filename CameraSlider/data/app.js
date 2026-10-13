@@ -2,7 +2,7 @@
 const $ = id => document.getElementById(id);
 const qa = s => document.querySelectorAll(s);
 
-let ws, S = {}, maxPos = 600, homed = false, jogTimer = null, saveTimer = null;
+let ws, S = {}, CAM = {}, camTimer = null, maxPos = 600, homed = false, jogTimer = null, saveTimer = null;
 
 // ---------------- WebSocket ----------------
 function connect() {
@@ -12,7 +12,7 @@ function connect() {
   ws.onmessage = e => {
     let m; try { m = JSON.parse(e.data); } catch (_) { return; }
     if (m.type === 'status') onStatus(m);
-    else if (m.type === 'settings') onSettings(m.s);
+    else if (m.type === 'settings') onSettings(m.s, m.cam || {});
     else if (m.type === 'msg') toast(m.text, m.err);
     else if (m.type === 'scan') onScan(m.list);
   };
@@ -54,7 +54,9 @@ function onStatus(x) {
   $('spd').textContent = f1(Math.abs(m.speed || 0)) + ' mm/s';
   $('tgt').textContent = homed ? f1(m.target) + ' mm' : '–';
   $('cyc').textContent = m.state === 'Program' ? `${m.done} / ${m.total || '∞'}` : '–';
-  $('wait').textContent = m.waitLeft > 0 ? f1(m.waitLeft) + ' s' : '–';
+  $('wait').textContent = m.waitManual ? 'Continue?' : (m.waitLeft > 0 ? f1(m.waitLeft) + ' s' : '–');
+  $('bCont').hidden = !m.waitManual;
+  onCamStatus(x.c || {}, m);
   $('hall').innerHTML = m.hall ? '<span class="badge warn">ACTIVE</span>' : 'free';
   $('drv').innerHTML = (m.driver ? '<span class="badge ok">OK</span>' : '<span class="badge err">UART error</span>') +
     (m.drvFails ? ` <span class="hint" title="UART read failures since boot">${m.drvFails}×</span>` : '');
@@ -77,12 +79,15 @@ function onStatus(x) {
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
 // ---------------- nastavení ----------------
-function onSettings(s) {
+function onSettings(s, cam) {
   S = s;
+  CAM = cam;
   maxPos = s.maxPos || 600;
   qa('[data-k]').forEach(el => {
     const k = el.dataset.k;
-    if (!(k in s) || el === document.activeElement) return;
+    const src = el.dataset.g === 'cam' ? cam : s;
+    if (!(k in src) || el === document.activeElement) return;
+    if (src !== s) { setField(el, src[k]); return; }
     if (el.type === 'checkbox') el.checked = !!s[k];
     else if (el.type === 'radio') el.checked = (el.value === '1') === !!s[k];
     else el.value = s[k];
@@ -94,6 +99,59 @@ function onSettings(s) {
   drawRange();
   updateSpm();
   updateCountVis();
+  camCalc();
+}
+
+function setField(el, v) {
+  if (el.type === 'checkbox') el.checked = !!v;
+  else el.value = v;
+}
+
+// ---------------- kamera ----------------
+const BLE = { off: ['Off', ''], unpaired: ['Not paired', 'err'], pairing: ['Pairing…', 'warn'], connecting: ['Connecting…', 'warn'],
+  connected: ['Connected', 'ok'], disconnected: ['Disconnected', 'err'] };
+
+function onCamStatus(c, m) {
+  const trig = +(CAM.trigger || 0);
+  const b = BLE[c.ble] || [c.ble || '–', ''];
+  $('bleSt').textContent = b[0];
+  $('bleSt').className = 'badge ' + b[1];
+  $('bleAddr').textContent = c.addr || '';
+  $('bleCnt').textContent = (c.bleShots || c.bleFails) ? `sent ${c.bleShots || 0} · failed ${c.bleFails || 0}` : '';
+
+  let st;
+  if (!c.enabled) st = '<span class="hint">photos off</span>';
+  else if (trig === 1) st = '<span class="badge ok">Wired</span>';
+  else st = `<span class="badge ${b[1]}">${b[0]}</span>`;
+  $('camSt').innerHTML = st;
+
+  $('camShots').innerHTML = c.enabled && c.passes
+    ? `${c.pShots} / ${c.pPlanned} <span class="hint">· pass ${c.passes}</span>` + (c.failed ? ` <span class="badge err">${c.failed} failed</span>` : '')
+    : '–';
+  $('logInfo').textContent = c.session ? `· session ${c.session}: ${c.passes} passes, ${c.shots} photos` : '';
+}
+
+function camCalc() {
+  const c = collect('cam'), mo = collect('motion');
+  const box = $('camCalc');
+  if (!c.spacing || !mo.speedOut || !mo.speedIn) { box.innerHTML = ''; return; }
+  const a = mo.rangeFrom || 0, b = mo.rangeTo || 0, len = Math.abs(b - a);
+  const n = Math.max(0, Math.floor((len - (c.startOffset || 0)) / c.spacing + 1e-3) + 1);
+  const vFwd = b >= a ? mo.speedOut : mo.speedIn, vBack = b >= a ? mo.speedIn : mo.speedOut;
+  const iv = v => c.spacing / v * 1000;
+  const cls = ms => ms < (c.minIntervalMs || 0) ? 'bad' : ms < 500 ? 'warn' : '';
+  const part = (lbl, ms, on) => on ? `<span>${lbl}: <b class="${cls(ms)}">${Math.round(ms)} ms</b> (${(1000 / ms).toFixed(1)} /s)</span>` : '';
+  const dm = +c.dirMode;
+  box.innerHTML = `<span>Photos per pass: <b>${n}</b></span>` +
+    part('From→To', iv(vFwd), dm !== 2) + part('To→From', iv(vBack), dm !== 1) +
+    `<span>Motion blur at 1/200 s without flash: <b>${(vFwd / 200).toFixed(2)} mm</b></span>`;
+}
+
+function saveCam() {
+  clearTimeout(camTimer);
+  send({ cmd: 'camSave', s: collect('cam') });
+  $('camSaved').textContent = '· saved ✓';
+  setTimeout(() => $('camSaved').textContent = '', 1500);
 }
 
 function collect(group) {
@@ -194,11 +252,20 @@ qa('[data-g="motion"]').forEach(el => el.addEventListener('change', () => {
   saveTimer = setTimeout(saveMotion, 300);
 }));
 qa('[data-k="rangeFrom"],[data-k="rangeTo"]').forEach(el => el.addEventListener('input', drawRange));
+qa('[data-g="cam"]').forEach(el => el.addEventListener('change', () => {
+  clearTimeout(camTimer);
+  camTimer = setTimeout(saveCam, 300);
+}));
+qa('[data-g="cam"],[data-g="motion"]').forEach(el => el.addEventListener('input', camCalc));
+$('bCont').onclick = () => send({ cmd: 'continue' });
+$('bPair').onclick = () => send({ cmd: 'camPair' });
+$('bTest').onclick = () => send({ cmd: 'camTest' });
+$('bForget').onclick = () => { if (confirm('Forget the paired camera?')) send({ cmd: 'camForget' }); };
 qa('[name="ci"]').forEach(el => el.addEventListener('change', updateCountVis));
 qa('[data-g="config"]').forEach(el => el.addEventListener('input', updateSpm));
 
-$('bCycle').onclick = () => { saveMotion(); send({ cmd: 'cycle' }); };
-$('bSingle').onclick = () => { saveMotion(); send({ cmd: 'single' }); };
+$('bCycle').onclick = () => { saveMotion(); saveCam(); send({ cmd: 'cycle' }); };
+$('bSingle').onclick = () => { saveMotion(); saveCam(); send({ cmd: 'single' }); };
 
 $('bCfg').onclick = () => send({ cmd: 'saveConfig', s: collect('config') });
 $('bFactory').onclick = () => { if (confirm('Restore factory settings? Everything including WiFi will be erased.')) send({ cmd: 'factoryReset' }); };

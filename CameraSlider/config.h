@@ -12,6 +12,8 @@
 #define PIN_TMC_RX     18   // ESP RX -> přímo PDN_UART
 #define PIN_HALL       10   // Hallovo čidlo (open-collector, interní pull-up)
 #define PIN_RESET_JMP  11   // jumper na GND = normál, rozpojeno = reset nastavení
+#define PIN_CAM_SHUTTER 12  // drátová spoušť: -> 330 Ω -> optočlen PC817 -> hrot jacku E3
+#define PIN_CAM_FOCUS   13  // drátové ostření: -> 330 Ω -> optočlen PC817 -> kroužek jacku E3
 
 // ============================================================================
 //  TMC2209

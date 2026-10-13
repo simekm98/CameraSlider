@@ -94,3 +94,14 @@ button.ok{background:var(--ok);border-color:var(--ok);color:#fff}
   .pos{font-size:28px}
   .narrow{max-width:none}
 }
+
+/* --- kamera --- */
+.wide{width:100%}
+a.btn{display:inline-block;padding:10px 14px;border-radius:8px;border:1px solid var(--line);background:var(--card2);
+  color:var(--tx);font-weight:600;text-decoration:none}
+a.btn:hover{border-color:#3d4556}
+.calc{display:flex;flex-wrap:wrap;gap:6px 18px;padding:10px 12px;border-radius:8px;background:var(--card2);border:1px solid var(--line);font-size:13px}
+.calc b{font-size:15px}
+.calc .bad{color:var(--err)}
+.calc .warn{color:var(--warn)}
+#bCont{margin-bottom:6px}

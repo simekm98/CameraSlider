@@ -1,6 +1,8 @@
 #include "motion.h"
 #include "config.h"
 #include "settings.h"
+#include "capture.h"
+#include "camera.h"
 #include <FastAccelStepper.h>
 #include <TMCStepper.h>
 
@@ -27,6 +29,8 @@ static bool pCycleMode, pOneWay;
 static uint32_t pDone, pTarget;   // pTarget 0 = nekonečně
 static float pA, pB;              // Od, Do (zafixováno při startu)
 static uint32_t waitStart, waitMs;
+static bool waitManualNow = false;    // čeká se na tlačítko Continue
+static volatile bool continueReq = false;
 
 // --- ruční posuv ---
 static int jogDir = 0;
@@ -326,11 +330,15 @@ const char *Motion::cmdStartProgram(bool cycle) {
   pA = clampPos(cfg.rangeFrom);
   pB = clampPos(cfg.rangeTo);
   if (fabsf(pA - pB) < 0.1f) return "From–To range is zero";
+  if (auto e = Capture::checkStart(pA, pB, !cycle && cfg.singleOneWay)) return e;
 
   pCycleMode = cycle;
   pOneWay = !cycle && cfg.singleOneWay;
   pTarget = cycle ? (cfg.cycleInfinite ? 0 : cfg.cycleCount) : 1;
   pDone = 0;
+  continueReq = false;
+  waitManualNow = false;
+  Capture::programStart();
   state = MotionState::Program;
   pPhase = ProgPhase::ToStart;
   startLeg(pA);
@@ -343,44 +351,71 @@ static void startWait(bool atB) {
   float s = (here >= other) ? cfg.waitFar : cfg.waitNear;
   waitMs = (uint32_t)(s * 1000.0f);
   waitStart = millis();
+  waitManualNow = cam.waitManual;
+  continueReq = false;
+  if (waitManualNow) emit("Waiting – turn the board and press Continue", false);
   pPhase = atB ? ProgPhase::WaitB : ProgPhase::WaitA;
 }
 
 static void finishProgram() {
+  Capture::programEnd(false);
   state = MotionState::Idle;
   emit("Program finished", false);
+}
+
+static bool waitDone() {
+  if (waitManualNow) return continueReq;
+  return millis() - waitStart >= waitMs;
+}
+
+static void legTo(bool toB) {
+  pPhase = toB ? ProgPhase::ToB : ProgPhase::ToA;
+  waitManualNow = false;
+  continueReq = false;
+  startLeg(toB ? pB : pA);
+  Capture::legStart(toB ? pA : pB, toB ? pB : pA, toB);
 }
 
 static void updateProgram() {
   switch (pPhase) {
     case ProgPhase::ToStart:
-      if (!running()) { pPhase = ProgPhase::ToB; startLeg(pB); }
+      if (!running()) legTo(true);
       break;
     case ProgPhase::ToB:
+      Capture::poll(curMm());
       if (!running()) {
+        Capture::legEnd(curMm());
         if (pOneWay) finishProgram();
         else startWait(true);
       }
       break;
     case ProgPhase::WaitB:
-      if (millis() - waitStart >= waitMs) { pPhase = ProgPhase::ToA; startLeg(pA); }
+      if (waitDone()) legTo(false);
       break;
     case ProgPhase::ToA:
+      Capture::poll(curMm());
       if (!running()) {
+        Capture::legEnd(curMm());
         pDone++;
         if (pTarget && pDone >= pTarget) finishProgram();
         else startWait(false);
       }
       break;
     case ProgPhase::WaitA:
-      if (millis() - waitStart >= waitMs) { pPhase = ProgPhase::ToB; startLeg(pB); }
+      if (waitDone()) legTo(true);
       break;
   }
+}
+
+void Motion::cmdContinue() {
+  if (state == MotionState::Program && (pPhase == ProgPhase::WaitA || pPhase == ProgPhase::WaitB))
+    continueReq = true;
 }
 
 // ============================================================================
 void Motion::cmdStop() {
   if (!stepper || state == MotionState::Idle) return;
+  if (state == MotionState::Program) Capture::programEnd(true);
   stepper->stopMove();           // plynulé zabrzdění
   jogDir = 0;
   state = MotionState::Moving;   // -> Idle až po zastavení
@@ -389,6 +424,7 @@ void Motion::cmdStop() {
 
 void Motion::cmdDisable() {
   if (!stepper) return;
+  if (state == MotionState::Program) Capture::programEnd(true);
   stepper->forceStop();
   stepper->disableOutputs();
   enabled = false;
@@ -402,7 +438,8 @@ void Motion::update() {
   if (!stepper) return;
 
   // UART čtení může blokovat pár ms -> ne během homingu (čtení čidla)
-  if (state != MotionState::Homing && millis() - lastDriverCheck > 1000) {
+  // a ne během průjezdu s focením (zpoždění spouště)
+  if (state != MotionState::Homing && !Capture::legActive() && millis() - lastDriverCheck > 1000) {
     lastDriverCheck = millis();
     checkDriver();
   }
@@ -476,7 +513,8 @@ void Motion::fillStatus(JsonObject o) {
     o["total"] = pTarget;
     if (pPhase == ProgPhase::WaitA || pPhase == ProgPhase::WaitB) {
       uint32_t el = millis() - waitStart;
-      o["waitLeft"] = r2(el < waitMs ? (waitMs - el) / 1000.0f : 0);
+      if (waitManualNow) o["waitManual"] = true;
+      else o["waitLeft"] = r2(el < waitMs ? (waitMs - el) / 1000.0f : 0);
     }
   }
 }

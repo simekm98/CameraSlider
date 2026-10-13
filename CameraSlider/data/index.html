@@ -46,7 +46,11 @@
       <div class="stat"><b>Wait</b><span id="wait">–</span></div>
       <div class="stat"><b>Sensor</b><span id="hall">–</span></div>
       <div class="stat"><b>Driver</b><span id="drv">–</span></div>
+      <div class="stat"><b>Camera</b><span id="camSt">–</span></div>
+      <div class="stat"><b>Photos (pass)</b><span id="camShots">–</span></div>
     </div>
+
+    <button class="ok big wide mt" id="bCont" hidden>▶ Continue – board is turned</button>
 
     <div class="row">
       <button class="pri big" id="bHome">⌂ Home</button>
@@ -118,6 +122,62 @@
         <div class="hint">The carriage first moves to “From”.</div>
         <button class="ok needhome" id="bSingle">▶ Start single cycle</button>
       </div>
+    </div>
+  </section>
+
+  <!-- ===================== CAMERA ===================== -->
+  <section class="card">
+    <h2>Camera <span class="hint" id="camSaved"></span></h2>
+    <div class="row wrapgap">
+      <label class="c"><input type="checkbox" data-g="cam" data-k="enabled"> Take photos during program</label>
+      <label class="c"><input type="checkbox" data-g="cam" data-k="waitManual"> At the ends wait for <b>Continue</b> (turn the board)</label>
+    </div>
+    <div class="grid mt">
+      <label class="f">Trigger
+        <select data-g="cam" data-k="trigger">
+          <option value="0">Bluetooth (Canon BR-E1)</option>
+          <option value="1">Wired (GPIO 12/13 → E3 jack)</option>
+          <option value="2">Both</option>
+        </select>
+      </label>
+      <label class="f">Shoot during
+        <select data-g="cam" data-k="dirMode">
+          <option value="0">Both directions</option>
+          <option value="1">From → To only</option>
+          <option value="2">To → From only</option>
+        </select>
+      </label>
+      <label class="f">Photo spacing [mm]<input type="number" step="1" min="1" data-g="cam" data-k="spacing"></label>
+      <label class="f" title="First photo this far after the start of each pass">First photo offset [mm]<input type="number" step="1" min="0" data-g="cam" data-k="startOffset"></label>
+      <label class="f">Shutter press [ms]<input type="number" step="10" min="20" data-g="cam" data-k="pressMs"></label>
+      <label class="f" title="Program will not start if photos would come faster than this">Min. interval [ms]<input type="number" step="50" min="50" data-g="cam" data-k="minIntervalMs"></label>
+    </div>
+    <div class="row mt">
+      <label class="c"><input type="checkbox" data-g="cam" data-k="holdFocus"> Wired: hold focus line during program (keeps camera awake)</label>
+    </div>
+    <div class="calc mt" id="camCalc"></div>
+
+    <div class="sub mt">
+      <h3>Bluetooth</h3>
+      <div class="row between">
+        <div><span class="badge" id="bleSt">–</span> <span class="hint" id="bleAddr"></span></div>
+        <div class="hint" id="bleCnt"></div>
+      </div>
+      <div class="row mt">
+        <button class="pri" id="bPair">Pair camera</button>
+        <button id="bTest">Test shot</button>
+        <button id="bForget">Forget camera</button>
+      </div>
+      <div class="hint mt">Pairing: on the 77D open <i>Wireless settings → Bluetooth function → Remote</i>, then <i>Pairing</i>, and press <b>Pair camera</b> within 20 s. Turn off camera auto power off.</div>
+    </div>
+
+    <div class="sub mt">
+      <h3>Shot log <span class="hint" id="logInfo"></span></h3>
+      <div class="row">
+        <a class="btn" href="/shots.csv" download>⬇ shots.csv</a>
+        <a class="btn" href="/api/shots" target="_blank">JSON</a>
+      </div>
+      <div class="hint mt">Each pass with photos = one face of the board. 1 cycle = 2 passes (From→To, To→From), so 4 faces = Count 2 cycles. The log is reset on every program start.</div>
     </div>
   </section>
 

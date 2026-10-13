@@ -22,6 +22,7 @@ namespace Motion {
   void cmdJogRelease();
   const char *cmdStartProgram(bool cycle);  // true = cyklický režim, false = 1 cyklus
   void cmdStop();
+  void cmdContinue();             // pokračovat po čekání na tlačítko
   void cmdDisable();
 
   bool isBusy();

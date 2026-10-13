@@ -7,6 +7,7 @@
     - ESPAsyncWebServer  (ESP32Async)
     - AsyncTCP           (ESP32Async)
     - ArduinoJson        (Benoit Blanchon, v7)
+    - NimBLE-Arduino     (h2zero, v2.x)  – Bluetooth spoušť Canon
 
   Web UI je v LittleFS (složka data/) – nahrát přes plugin arduino-littlefs-upload.
   UI: WiFi "CameraSlider" -> http://cameraslider.local (nebo http://192.168.4.1)
@@ -15,6 +16,7 @@
 #include "settings.h"
 #include "motion.h"
 #include "net.h"
+#include "camera.h"
 
 static bool jumperWasPresent = false;
 static uint32_t jumperOpenSince = 0;
@@ -58,12 +60,15 @@ void setup() {
   jumperWasPresent = jumperPresent();
 
   Motion::begin();
+  Camera::begin();
   Net::begin();
   Motion::setNotifier(Net::sendMsg);
+  Camera::setNotifier(Net::sendMsg);
 }
 
 void loop() {
   Motion::update();
+  Camera::update();
   Net::update();
   checkJumper();
 }
