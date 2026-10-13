@@ -80,6 +80,8 @@ static bool bleConnect() {
     bleState = BleState::Disconnected;
     return false;
   }
+  // Canon přijímá povely jen přes šifrované (spárované) spojení
+  if (!client->secureConnection()) post(true, "Camera: encryption failed – pair the camera again");
   NimBLERemoteService *svc = client->getService(SVC_UUID);
   if (svc) chrShutter = svc->getCharacteristic(CHR_SHUT_UUID);
   if (!chrShutter) {
@@ -126,6 +128,7 @@ static void blePair() {
     return;
   }
 
+  if (!client->secureConnection()) post(true, "Camera: bonding failed – try pairing again");
   NimBLERemoteService *svc = client->getService(SVC_UUID);
   NimBLERemoteCharacteristic *chrPair = svc ? svc->getCharacteristic(CHR_PAIR_UUID) : nullptr;
   if (!chrPair) {
@@ -142,7 +145,7 @@ static void blePair() {
   buf[0] = 0x03;
   memcpy(buf + 1, HOSTNAME, n);
   buf[n + 1] = 0x00;
-  chrPair->writeValue(buf, n + 2, false);
+  if (!chrPair->writeValue(buf, n + 2, true)) post(true, "Camera: pairing write rejected");
   vTaskDelay(pdMS_TO_TICKS(300));
   client->disconnect();
   vTaskDelay(pdMS_TO_TICKS(500));
@@ -171,10 +174,10 @@ static void blePress() {
     return;
   }
   uint8_t v = MODE_IMMEDIATE | BTN_RELEASE;
-  bool ok = chrShutter->writeValue(&v, 1, false);
+  bool ok = chrShutter->writeValue(&v, 1, true);
   vTaskDelay(pdMS_TO_TICKS(cam.pressMs));
   v = MODE_IMMEDIATE;
-  ok = chrShutter->writeValue(&v, 1, false) && ok;
+  ok = chrShutter->writeValue(&v, 1, true) && ok;
   if (ok) bleShots++;
   else bleFails++;
 }
